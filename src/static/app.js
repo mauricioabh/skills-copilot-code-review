@@ -893,13 +893,13 @@ document.addEventListener("DOMContentLoaded", () => {
       announcementBannerContainer.innerHTML = "";
 
       if (announcements.length > 0) {
-        // Display all active announcements
+        // Display all active announcements with XSS protection
         announcements.forEach((announcement) => {
           const banner = document.createElement("div");
           banner.className = "announcement-banner";
           banner.setAttribute("role", "region");
           banner.setAttribute("aria-label", "Important announcement");
-          banner.textContent = announcement.message;
+          banner.textContent = announcement.message; // textContent prevents XSS
           announcementBannerContainer.appendChild(banner);
         });
       }
@@ -925,28 +925,65 @@ document.addEventListener("DOMContentLoaded", () => {
         const announcementCard = document.createElement("div");
         announcementCard.className = "announcement-card";
 
-        const statusBadge = announcement.is_active
-          ? '<span class="status-badge active">Active</span>'
-          : '<span class="status-badge inactive">Inactive</span>';
+        // Create header
+        const headerDiv = document.createElement("div");
+        headerDiv.className = "announcement-card-header";
 
-        const startDate = announcement.start_date
-          ? `<p><strong>Start:</strong> ${formatDate(announcement.start_date)}</p>`
-          : "";
+        // Status badge
+        const statusBadge = document.createElement("span");
+        statusBadge.className = announcement.is_active ? "status-badge active" : "status-badge inactive";
+        statusBadge.textContent = announcement.is_active ? "Active" : "Inactive";
 
-        announcementCard.innerHTML = `
-          <div class="announcement-card-header">
-            ${statusBadge}
-            <div class="announcement-actions">
-              <button class="edit-announcement-btn" data-id="${announcement.id}" title="Edit">✏️</button>
-              <button class="delete-announcement-btn" data-id="${announcement.id}" title="Delete">🗑️</button>
-            </div>
-          </div>
-          <div class="announcement-card-body">
-            <p class="announcement-message">${announcement.message}</p>
-            ${startDate}
-            <p><strong>Expires:</strong> ${formatDate(announcement.expiration_date)}</p>
-          </div>
-        `;
+        // Actions div
+        const actionsDiv = document.createElement("div");
+        actionsDiv.className = "announcement-actions";
+
+        const editBtn = document.createElement("button");
+        editBtn.className = "edit-announcement-btn";
+        editBtn.dataset.id = announcement.id;
+        editBtn.title = "Edit";
+        editBtn.textContent = "✏️";
+
+        const deleteBtn = document.createElement("button");
+        deleteBtn.className = "delete-announcement-btn";
+        deleteBtn.dataset.id = announcement.id;
+        deleteBtn.title = "Delete";
+        deleteBtn.textContent = "🗑️";
+
+        actionsDiv.appendChild(editBtn);
+        actionsDiv.appendChild(deleteBtn);
+
+        headerDiv.appendChild(statusBadge);
+        headerDiv.appendChild(actionsDiv);
+
+        // Create body
+        const bodyDiv = document.createElement("div");
+        bodyDiv.className = "announcement-card-body";
+
+        const messageP = document.createElement("p");
+        messageP.className = "announcement-message";
+        messageP.textContent = announcement.message; // textContent prevents XSS
+
+        bodyDiv.appendChild(messageP);
+
+        if (announcement.start_date) {
+          const startP = document.createElement("p");
+          const startStrong = document.createElement("strong");
+          startStrong.textContent = "Start: ";
+          startP.appendChild(startStrong);
+          startP.appendChild(document.createTextNode(formatDate(announcement.start_date)));
+          bodyDiv.appendChild(startP);
+        }
+
+        const expiresP = document.createElement("p");
+        const expiresStrong = document.createElement("strong");
+        expiresStrong.textContent = "Expires: ";
+        expiresP.appendChild(expiresStrong);
+        expiresP.appendChild(document.createTextNode(formatDate(announcement.expiration_date)));
+        bodyDiv.appendChild(expiresP);
+
+        announcementCard.appendChild(headerDiv);
+        announcementCard.appendChild(bodyDiv);
 
         announcementsList.appendChild(announcementCard);
       });
@@ -1098,10 +1135,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const expirationDate = announcementExpirationDateInput.value;
     const isActive = announcementIsActiveInput.checked;
 
-    // Validate dates
+    // Validate dates with proper timezone handling
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const expDate = new Date(expirationDate);
+    const expDate = new Date(expirationDate + 'T00:00:00'); // Force local timezone
 
     if (expDate < today) {
       showAnnouncementsMessage("Expiration date cannot be in the past.", "error");
@@ -1109,7 +1146,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     if (startDate) {
-      const stDate = new Date(startDate);
+      const stDate = new Date(startDate + 'T00:00:00'); // Force local timezone
       if (stDate > expDate) {
         showAnnouncementsMessage("Start date cannot be after expiration date.", "error");
         return;

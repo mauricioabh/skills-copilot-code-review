@@ -2,10 +2,13 @@
 Announcement endpoints for the High School Management System API
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from typing import List, Dict, Any, Optional
 from datetime import datetime, date
 from pydantic import BaseModel
+from html import escape
+from bson.objectid import ObjectId
+from bson.errors import InvalidId
 
 from ..database import announcements_collection, teachers_collection
 
@@ -27,6 +30,14 @@ class AnnouncementUpdate(BaseModel):
     start_date: Optional[str] = None
     expiration_date: Optional[str] = None
     is_active: Optional[bool] = None
+
+
+def verify_teacher(teacher_username: str = Query(...)):
+    """Verify teacher authentication - reusable dependency"""
+    teacher = teachers_collection.find_one({"_id": teacher_username})
+    if not teacher:
+        raise HTTPException(status_code=401, detail="Invalid teacher credentials")
+    return teacher
 
 
 @router.get("", response_model=List[Dict[str, Any]])
@@ -62,13 +73,8 @@ def get_announcements(active_only: bool = Query(True, description="Filter only a
 
 @router.post("", response_model=Dict[str, Any])
 @router.post("/", response_model=Dict[str, Any])
-def create_announcement(announcement: AnnouncementCreate, teacher_username: str = Query(...)):
+def create_announcement(announcement: AnnouncementCreate, teacher = Depends(verify_teacher)):
     """Create a new announcement - requires teacher authentication"""
-    # Verify teacher authentication
-    teacher = teachers_collection.find_one({"_id": teacher_username})
-    if not teacher:
-        raise HTTPException(status_code=401, detail="Invalid teacher credentials")
-    
     # Validate dates
     try:
         exp_date = datetime.strptime(announcement.expiration_date, "%Y-%m-%d").date()
@@ -84,8 +90,9 @@ def create_announcement(announcement: AnnouncementCreate, teacher_username: str 
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
     
-    # Create announcement document
+    # Create announcement document with sanitized message
     announcement_doc = announcement.dict()
+    announcement_doc["message"] = escape(announcement_doc["message"])
     
     # Insert into database
     result = announcements_collection.insert_one(announcement_doc)
@@ -104,30 +111,23 @@ def create_announcement(announcement: AnnouncementCreate, teacher_username: str 
 def update_announcement(
     announcement_id: str, 
     announcement: AnnouncementUpdate, 
-    teacher_username: str = Query(...)
+    teacher = Depends(verify_teacher)
 ):
     """Update an existing announcement - requires teacher authentication"""
-    from bson.objectid import ObjectId
-    
-    # Verify teacher authentication
-    teacher = teachers_collection.find_one({"_id": teacher_username})
-    if not teacher:
-        raise HTTPException(status_code=401, detail="Invalid teacher credentials")
-    
     # Validate announcement exists
     try:
         obj_id = ObjectId(announcement_id)
-    except:
+    except (InvalidId, TypeError, ValueError):
         raise HTTPException(status_code=400, detail="Invalid announcement ID")
     
     existing = announcements_collection.find_one({"_id": obj_id})
     if not existing:
         raise HTTPException(status_code=404, detail="Announcement not found")
     
-    # Build update document
+    # Build update document with sanitized message
     update_doc = {}
     if announcement.message is not None:
-        update_doc["message"] = announcement.message
+        update_doc["message"] = escape(announcement.message)
     if announcement.start_date is not None:
         update_doc["start_date"] = announcement.start_date
     if announcement.expiration_date is not None:
@@ -168,19 +168,12 @@ def update_announcement(
 
 
 @router.delete("/{announcement_id}")
-def delete_announcement(announcement_id: str, teacher_username: str = Query(...)):
+def delete_announcement(announcement_id: str, teacher = Depends(verify_teacher)):
     """Delete an announcement - requires teacher authentication"""
-    from bson.objectid import ObjectId
-    
-    # Verify teacher authentication
-    teacher = teachers_collection.find_one({"_id": teacher_username})
-    if not teacher:
-        raise HTTPException(status_code=401, detail="Invalid teacher credentials")
-    
     # Validate announcement exists
     try:
         obj_id = ObjectId(announcement_id)
-    except:
+    except (InvalidId, TypeError, ValueError):
         raise HTTPException(status_code=400, detail="Invalid announcement ID")
     
     result = announcements_collection.delete_one({"_id": obj_id})
